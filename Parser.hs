@@ -1,7 +1,8 @@
 module Parser where
 
 import Numeric
-import Data.Char (digitToInt)
+import Data.Ratio
+import Data.Complex
 import Text.ParserCombinators.Parsec hiding (spaces)
 
 
@@ -12,6 +13,9 @@ data LispVal = Atom String
              | List [LispVal]
              | DottedList [LispVal] LispVal
              | Number Integer
+             | Float Double
+             | Complex (Complex Double)
+             | Rational Rational
              | String String
              | Bool Bool
              | Character Char
@@ -82,10 +86,36 @@ parseChar = fmap Character (char '\\' >> anyChar)
 parseBool :: Parser LispVal
 parseBool = fmap (Bool . (== 't')) (oneOf "ft")
 
+parseFloat :: Parser LispVal
+parseFloat = do whole <- many1 digit
+                char '.'
+                rest <- many1 digit
+                return $ Float $ read (whole ++ "." ++ rest)
+
+parseComplex :: Parser LispVal
+parseComplex = do real <- (parseNumber <|> parseFloat)
+                  char '+'
+                  imag <- (parseNumber <|> parseFloat)
+                  char 'i'
+                  return $ Complex ((toDouble real) :+ (toDouble imag))
+              where toDouble (Float d) = d
+                    toDouble (Number n) = fromInteger n
+
+parseRational :: Parser LispVal
+parseRational = do nom <- parseNumber
+                   char '/'
+                   den <- parseNumber
+                   return $ Rational ((toNum nom) % (toNum den))
+                where toNum (Number n) = n
+                      
+
 parseExp :: Parser LispVal
 parseExp = parseHashPrefix
            <|> parseAtom
            <|> parseString
+           <|> try parseFloat
+           <|> try parseComplex
+           <|> try parseRational
            <|> parseNumber
 
 
