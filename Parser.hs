@@ -1,4 +1,4 @@
-module Parser where
+module Parser (LispVal (..), readExpr) where
 
 import Numeric
 import Data.Ratio
@@ -160,7 +160,7 @@ parseExp = parseHashPrefix
            <|> parseLists
 
 
-readExpr :: String -> String
+readExpr :: String -> LispVal
 readExpr input = case parse parseExp "lisp" input of
-  Left err -> "No match: " ++ show err
-  Right val -> "Found value: " ++ show val
+  Left  err -> String $ "No match: " ++ show err
+  Right val -> val
