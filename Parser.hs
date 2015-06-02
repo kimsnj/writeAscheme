@@ -5,7 +5,6 @@ import Data.Ratio
 import Data.Complex
 import Text.ParserCombinators.Parsec hiding (spaces)
 
-
 -------------------
 -- Token definition
 -------------------
@@ -33,16 +32,16 @@ spaces = skipMany1 space
 escapedChar :: Parser String
 escapedChar = do backslash <- char '\\'
                  escaped <- oneOf "nrt\"\\"
-                 return $ [backslash, escaped]
+                 return [backslash, escaped]
                  
 
 ----------------
 -- Token parsers
 ----------------
 parseString :: Parser LispVal
-parseString = do char '"'
+parseString = do _ <- char '"'
                  x <- many (noneOf "\"") <|> escapedChar
-                 char '"'
+                 _ <- char '"'
                  return $ String x
 
 parseAtom :: Parser LispVal
@@ -63,10 +62,13 @@ parseHashPrefix = char '#' >> (parseOctal
                                <|> parseChar
                                <|> parseBool)
 
+
+-- Simple types parsing
+                                 
 parseNumberHelper prefix filter reader = do char prefix
                                             number <- many1 filter
                                             return $ (Number . reader) number
-                                     
+    
 parseOctal :: Parser LispVal
 parseOctal = parseNumberHelper 'o' octDigit (fst . head . readOct)
 
@@ -88,26 +90,40 @@ parseBool = fmap (Bool . (== 't')) (oneOf "ft")
 
 parseFloat :: Parser LispVal
 parseFloat = do whole <- many1 digit
-                char '.'
+                _ <- char '.'
                 rest <- many1 digit
                 return $ Float $ read (whole ++ "." ++ rest)
 
 parseComplex :: Parser LispVal
-parseComplex = do real <- (parseNumber <|> parseFloat)
-                  char '+'
-                  imag <- (parseNumber <|> parseFloat)
-                  char 'i'
-                  return $ Complex ((toDouble real) :+ (toDouble imag))
+parseComplex = do real <- parseNumber <|> parseFloat
+                  _ <- char '+'
+                  imag <- parseNumber <|> parseFloat
+                  _ <- char 'i'
+                  return $ Complex (toDouble real :+ toDouble imag)
               where toDouble (Float d) = d
                     toDouble (Number n) = fromInteger n
+                    toDouble n = error $ "Expected a number, received: " ++ show n
 
 parseRational :: Parser LispVal
 parseRational = do nom <- parseNumber
-                   char '/'
+                   _ <- char '/'
                    den <- parseNumber
-                   return $ Rational ((toNum nom) % (toNum den))
+                   return $ Rational (toNum nom % toNum den)
                 where toNum (Number n) = n
-                      
+                      toNum n = error $ "Expected a number, received: " ++ show n
+
+-- Recursive type parsing
+parseList :: Parser LispVal
+parseList = fmap List $ sepBy parseExp spaces
+
+parseDottedList :: Parser LispVal
+parseDottedList = do head <- endBy parseExp spaces
+                     tail <- char '.' >> spaces >> parseExp
+                     return $ DottedList head tail
+
+parseQuoted :: Parser LispVal
+parseQuoted = char '\'' >> parseExp >>= (\e -> return $ List [Atom "quote", e])
+
 
 parseExp :: Parser LispVal
 parseExp = parseHashPrefix
@@ -117,9 +133,14 @@ parseExp = parseHashPrefix
            <|> try parseComplex
            <|> try parseRational
            <|> parseNumber
+           <|> parseQuoted
+           <|> do _ <- char '('
+                  x <- try parseList <|> try parseDottedList
+                  _ <- char ')'
+                  return x
 
 
 readExpr :: String -> String
 readExpr input = case parse parseExp "lisp" input of
   Left err -> "No match: " ++ show err
-  Right val -> "Found value: " ++ (show val)
+  Right val -> "Found value: " ++ show val
