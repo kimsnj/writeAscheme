@@ -18,7 +18,24 @@ data LispVal = Atom String
              | String String
              | Bool Bool
              | Character Char
-             deriving (Show)
+
+showVal :: LispVal -> String
+showVal (Atom s)         = s
+showVal (List l)         = "(" ++ showListVal l ++ ")"
+showVal (DottedList h t) = "(" ++ showListVal h ++ " . " ++  showVal t ++ ")"
+showVal (Number i)       = show i
+showVal (Float d)        = show d
+showVal (Rational r)     = show (numerator r) ++ "/" ++ show (denominator r)
+showVal (String s)       = "\"" ++ s ++ "\""
+showVal (Bool True)      = "#t"
+showVal (Bool False)     = "#f"
+showVal (Character c)    = [c]
+showVal (Complex (real :+ img)) = show real ++ " + " ++ show img ++ "i"
+
+showListVal :: [LispVal] -> String
+showListVal = unwords . map showVal
+
+instance Show LispVal where show = showVal
 
 ----------
 -- Helpers
@@ -121,6 +138,12 @@ parseDottedList = do head <- endBy parseExp spaces
                      tail <- char '.' >> spaces >> parseExp
                      return $ DottedList head tail
 
+parseLists :: Parser LispVal
+parseLists = do _ <- char '('
+                x <- try parseList <|> parseDottedList
+                _ <- char ')'
+                return x
+
 parseQuoted :: Parser LispVal
 parseQuoted = char '\'' >> parseExp >>= (\e -> return $ List [Atom "quote", e])
 
@@ -134,10 +157,7 @@ parseExp = parseHashPrefix
            <|> try parseRational
            <|> parseNumber
            <|> parseQuoted
-           <|> do _ <- char '('
-                  x <- try parseList <|> try parseDottedList
-                  _ <- char ')'
-                  return x
+           <|> parseLists
 
 
 readExpr :: String -> String
