@@ -1,41 +1,13 @@
-module Parser (LispVal (..), readExpr) where
+module Parser (readExpr) where
+
+import LispVal
+import LispError
 
 import Numeric
 import Data.Ratio
 import Data.Complex
+import Control.Monad.Error
 import Text.ParserCombinators.Parsec hiding (spaces)
-
--------------------
--- Token definition
--------------------
-data LispVal = Atom String
-             | List [LispVal]
-             | DottedList [LispVal] LispVal
-             | Number Integer
-             | Float Double
-             | Complex (Complex Double)
-             | Rational Rational
-             | String String
-             | Bool Bool
-             | Character Char
-
-showVal :: LispVal -> String
-showVal (Atom s)         = s
-showVal (List l)         = "(" ++ showListVal l ++ ")"
-showVal (DottedList h t) = "(" ++ showListVal h ++ " . " ++  showVal t ++ ")"
-showVal (Number i)       = show i
-showVal (Float d)        = show d
-showVal (Rational r)     = show (numerator r) ++ "/" ++ show (denominator r)
-showVal (String s)       = "\"" ++ s ++ "\""
-showVal (Bool True)      = "#t"
-showVal (Bool False)     = "#f"
-showVal (Character c)    = [c]
-showVal (Complex (real :+ img)) = show real ++ " + " ++ show img ++ "i"
-
-showListVal :: [LispVal] -> String
-showListVal = unwords . map showVal
-
-instance Show LispVal where show = showVal
 
 ----------
 -- Helpers
@@ -81,7 +53,6 @@ parseHashPrefix = char '#' >> (parseOctal
 
 
 -- Simple types parsing
-                                 
 parseNumberHelper prefix filter reader = do char prefix
                                             number <- many1 filter
                                             return $ (Number . reader) number
@@ -130,13 +101,13 @@ parseRational = do nom <- parseNumber
                       toNum n = error $ "Expected a number, received: " ++ show n
 
 -- Recursive type parsing
-parseList :: Parser LispVal
+parseList :: Parser LispVal
 parseList = fmap List $ sepBy parseExp spaces
 
 parseDottedList :: Parser LispVal
-parseDottedList = do head <- endBy parseExp spaces
-                     tail <- char '.' >> spaces >> parseExp
-                     return $ DottedList head tail
+parseDottedList = do car <- endBy parseExp spaces
+                     cdr <- char '.' >> spaces >> parseExp
+                     return $ DottedList car cdr
 
 parseLists :: Parser LispVal
 parseLists = do _ <- char '('
@@ -160,7 +131,7 @@ parseExp = parseHashPrefix
            <|> parseLists
 
 
-readExpr :: String -> LispVal
+readExpr :: String -> ThrowsError LispVal
 readExpr input = case parse parseExp "lisp" input of
-  Left  err -> String $ "No match: " ++ show err
-  Right val -> val
+  Left  err -> throwError $ Parser err
+  Right val -> return val
