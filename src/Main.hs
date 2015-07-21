@@ -36,8 +36,8 @@ until_ predicate prompt action = do
     action result >> until_ predicate prompt action
 
 runOne :: String -> IO ()
-runOne expr = nullEnv >>= flip evalAndPrint expr
+runOne expr = primitiveBindings >>= flip evalAndPrint expr
 
 runRepl :: IO ()
-runRepl = nullEnv >>= until_ (=="quit") (readPrompt "> ") . evalAndPrint
+runRepl = primitiveBindings >>= until_ (=="quit") (readPrompt "> ") . evalAndPrint
 
