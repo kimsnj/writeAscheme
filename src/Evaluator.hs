@@ -15,7 +15,7 @@ eval val@(Number _) = return val
 eval val@(Bool _) = return val
 eval (List [Atom "quote", val]) = return val
 eval (List [Atom "if", predicate, conseq, alt]) = if' predicate conseq alt
-eval (List ((Atom "cond") : clauses)) = cond clauses
+eval (List (Atom "cond" : clauses)) = cond clauses
 eval (List (Atom func : args)) = mapM eval args >>= apply func
 eval badForm = throwError $ BadSpecialForm "Unrecognized special form" badForm
 
@@ -172,4 +172,4 @@ cond ((List [pred, conseq]):cls) =
        Bool True  -> eval conseq
        Bool False -> cond cls
        badArg     -> throwError $ TypeMismatch "bool" badArg
-cond badArgList = throwError $ Default "Invalid `cond' statement.`"
+cond badArgList = throwError $ Default $ "Invalid `cond' statement: " ++ show badArgList
