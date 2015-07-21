@@ -1,7 +1,6 @@
 module Parser (readExpr) where
 
-import LispVal
-import LispError
+import Types 
 
 import Numeric
 import Data.Ratio
@@ -22,7 +21,6 @@ escapedChar :: Parser String
 escapedChar = do backslash <- char '\\'
                  escaped <- oneOf "nrt\"\\"
                  return [backslash, escaped]
-                 
 
 ----------------
 -- Token parsers

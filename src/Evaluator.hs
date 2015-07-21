@@ -1,23 +1,28 @@
 {-# LANGUAGE ExistentialQuantification #-}
 
-module Evaluator (eval) where
+module Evaluator where
 
-import LispVal
-import LispError
+import Types
+import Data.IORef
 
 import Control.Monad.Error
 
 data Unpacker = forall a. Eq a => AnyUnpacker (LispVal -> ThrowsError a)
 
-eval :: LispVal -> ThrowsError LispVal
-eval val@(String _) = return val
-eval val@(Number _) = return val
-eval val@(Bool _) = return val
-eval (List [Atom "quote", val]) = return val
-eval (List [Atom "if", predicate, conseq, alt]) = if' predicate conseq alt
-eval (List (Atom "cond" : clauses)) = cond clauses
-eval (List (Atom func : args)) = mapM eval args >>= apply func
-eval badForm = throwError $ BadSpecialForm "Unrecognized special form" badForm
+eval :: Env -> LispVal -> IOThrowsError LispVal
+eval _ val@(String _) = return val
+eval _ val@(Number _) = return val
+eval _ val@(Bool _) = return val
+eval _ (List [Atom "quote", val]) = return val
+eval env (Atom id) = getVar env id
+eval env (List [Atom "if", predicate, conseq, alt]) = if' env predicate conseq alt
+eval env (List (Atom "cond" : clauses)) = cond env clauses
+eval env (List [Atom "set!", Atom var, form]) =
+  eval env form >>= setVar env var
+eval env (List [Atom "define", Atom var, form]) =
+  eval env form >>= defineVar env var
+eval env (List (Atom func : args)) = mapM (eval env) args >>= liftThrows . apply func
+eval _ badForm = throwError $ BadSpecialForm "Unrecognized special form" badForm
 
 
 apply :: String -> [LispVal] -> ThrowsError LispVal
@@ -105,7 +110,7 @@ unpackEquals arg1 arg2 (AnyUnpacker unpacker) =
   do unpacked1 <- unpacker arg1
      unpacked2 <- unpacker arg2
      return (unpacked1 == unpacked2)
-  `catchError` (const $ return False)
+  `catchError` const (return False)
 
 equal :: [LispVal] -> ThrowsError LispVal
 equal l@[List _, List _] = return $ Bool $ listEqual l equal
@@ -156,20 +161,50 @@ cons [x1, x2] = return (DottedList [x1] x2)
 cons badArgList = throwError $ NumArgs 2 badArgList
 
 -- Conditionals
-if' :: LispVal -> LispVal -> LispVal -> ThrowsError LispVal
-if' predicate conseq alt =
-  do result <- eval predicate
+if' :: Env -> LispVal -> LispVal -> LispVal -> IOThrowsError LispVal
+if' env predicate conseq alt =
+  do result <- eval env predicate
      case result of
-       Bool False -> eval alt
-       Bool True  -> eval conseq
+       Bool False -> eval env alt
+       Bool True  -> eval env conseq
        badArg     -> throwError $ TypeMismatch "bool" badArg
 
-cond :: [LispVal] -> ThrowsError LispVal
-cond ((List [Atom "else", conseq]):_) = eval conseq
-cond ((List [pred, conseq]):cls) =
-  do result <- eval pred
+cond :: Env -> [LispVal] -> IOThrowsError LispVal
+cond env (List [Atom "else", conseq]:_) = eval env conseq
+cond env (List [pred, conseq]:cls) =
+  do result <- eval env pred
      case result of
-       Bool True  -> eval conseq
-       Bool False -> cond cls
+       Bool True  -> eval env conseq
+       Bool False -> cond env cls
        badArg     -> throwError $ TypeMismatch "bool" badArg
-cond badArgList = throwError $ Default $ "Invalid `cond' statement: " ++ show badArgList
+cond _ badArgList = throwError $ Default $ "Invalid `cond' statement: " ++ show badArgList
+
+-- Mutable variables
+getVar :: Env -> String -> IOThrowsError LispVal
+getVar envRef var= do env <- liftIO $ readIORef envRef
+                      maybe (throwError $ UnboundVar "Getting an unbound var " var)
+                            (liftIO . readIORef)
+                            (lookup var env)
+
+setVar :: Env -> String -> LispVal -> IOThrowsError LispVal
+setVar envRef var value = do env <- liftIO $ readIORef envRef
+                             maybe (throwError $ UnboundVar "Setting an unbound var " var)
+                                   (liftIO . flip writeIORef value)
+                                   (lookup var env)
+                             return value
+
+defineVar :: Env -> String -> LispVal -> IOThrowsError LispVal
+defineVar envRef var value = do
+  alreadyDefined <- liftIO $ isBound envRef var
+  if alreadyDefined
+    then setVar envRef var value
+    else liftIO $ do
+        valueRef <- newIORef value
+        env <- readIORef envRef
+        writeIORef envRef ((var, valueRef) : env)
+        return value
+
+bindVars :: Env -> [(String, LispVal)] -> IO Env
+bindVars envRef bindings = readIORef envRef >>= extendEnv bindings >>= newIORef
+  where extendEnv bindings env = liftM (++ env) (mapM addBindings bindings)
+        addBindings (var, value) = liftM ((,) var) (newIORef value)
