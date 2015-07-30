@@ -1,6 +1,6 @@
-module Parser (readExpr) where
+module Parser (readExpr, readExprList) where
 
-import Types 
+import Types
 
 import Numeric
 import Data.Ratio
@@ -129,7 +129,10 @@ parseExp = parseHashPrefix
            <|> parseLists
 
 
-readExpr :: String -> ThrowsError LispVal
-readExpr input = case parse parseExp "lisp" input of
+readOrThrow :: Parser a -> String -> ThrowsError a
+readOrThrow parser input = case parse parser "lisp" input of
   Left  err -> throwError $ Parser err
   Right val -> return val
+
+readExpr = readOrThrow parseExp
+readExprList = readOrThrow (endBy parseExp spaces)
